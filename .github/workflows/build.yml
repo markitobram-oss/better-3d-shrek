@@ -1,0 +1,74 @@
+name: Build NDS ROM
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout my game code
+        uses: actions/checkout@v4
+        with:
+          path: mygame
+
+      - name: Fetch official devkitPro NDS example (provides working Makefile + default ARM7 core scaffold)
+        run: |
+          git clone --depth 1 https://github.com/devkitPro/nds-examples.git /tmp/examples
+
+      - name: Assemble project (official scaffold + my source files)
+        run: |
+          set -e
+          mkdir -p /tmp/project
+          cp -r /tmp/examples/hello_world/. /tmp/project/
+          cd /tmp/project
+
+          echo "---- template file listing (before swap) ----"
+          find . -maxdepth 5 -type f
+          echo "-----------------------------------------------"
+
+          rm -f source/main.cpp
+
+          MY_MAIN=$(find "$GITHUB_WORKSPACE/mygame" -iname "main.c" | head -n1)
+          MY_GFX=$(find "$GITHUB_WORKSPACE/mygame" -iname "bird_gfx.h" | head -n1)
+
+          if [ -z "$MY_MAIN" ]; then
+            echo "Could not find main.c in the uploaded repo" && exit 1
+          fi
+          if [ -z "$MY_GFX" ]; then
+            echo "Could not find bird_gfx.h in the uploaded repo" && exit 1
+          fi
+
+          mkdir -p source
+          cp "$MY_MAIN" source/main.c
+          cp "$MY_GFX" source/bird_gfx.h
+
+          echo "---- template file listing (after swap) ----"
+          find . -maxdepth 5 -type f
+          echo "----------------------------------------------"
+
+          echo "PROJECT_DIR=/tmp/project" >> "$GITHUB_ENV"
+
+      - name: Build with devkitARM (make)
+        run: |
+          cd "$PROJECT_DIR"
+          make
+
+      - name: Locate and rename the built .nds file
+        run: |
+          cd "$PROJECT_DIR"
+          NDS_FILE=$(find . -maxdepth 2 -iname "*.nds" | head -n1)
+          if [ -z "$NDS_FILE" ]; then
+            echo "Build did not produce an .nds file" && exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$NDS_FILE" "$GITHUB_WORKSPACE/out/BackroomsOgre3D.nds"
+
+      - name: Upload built ROM
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackroomsOgre3D-nds
+          path: out/BackroomsOgre3D.nds
